@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Reuse existing VPC, subnets, and IAM roles for EKS cluster with public and private subnet config
+
+Parameters:
+  ExistingClusterRoleArn:
+    Type: String
+    Description: ARN of the existing IAM role for the EKS cluster
+    Default: arn:aws:iam::356137398044:role/CrowdStrikeEKSClusterRole
+
+  ExistingNodeRoleArn:
+    Type: String
+    Description: ARN of the existing IAM role for the EKS worker nodes
+    Default: arn:aws:iam::356137398044:role/CrowdStrikeTestEKSNgRole
+
+  ExistingPublicSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First existing public subnet ID
+    Default: subnet-0eaf444d454809420
+
+  ExistingPublicSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second existing public subnet ID
+    Default: subnet-0ac2e4dfdc31624b4
+
+  ExistingPrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First existing private subnet ID
+    Default: subnet-094716fde1cab570f
+
+  ExistingPrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second existing private subnet ID
+    Default: subnet-0e268058d0f484357
+
+  ExistingVpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID for the EKS cluster
+    Default: vpc-07cb368576e08f1ad
+
+  EKSClusterAccessARN:
+    Type: String
+    Description: ARN of the IAM role for your user in AWS CLI
+    Default: 'arn:aws:iam::356137398044:user/testuser1'
+
+Resources:
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: CrowdStrikeTestEKS
+      Version: "1.32"
+      RoleArn: !Ref ExistingClusterRoleArn
+      AccessConfig:
+        AuthenticationMode: API_AND_CONFIG_MAP
+        BootstrapClusterCreatorAdminPermissions: true
+      KubernetesNetworkConfig:
+        IpFamily: ipv4
+        ServiceIpv4Cidr: "172.20.0.0/16"
+        ElasticLoadBalancing:
+          Enabled: false
+      ResourcesVpcConfig:
+        EndpointPublicAccess: true
+        EndpointPrivateAccess: true
+        PublicAccessCidrs:
+          - "0.0.0.0/0"
+        SubnetIds:
+          - !Ref ExistingPublicSubnet1
+          - !Ref ExistingPublicSubnet2
+          - !Ref ExistingPrivateSubnet1
+          - !Ref ExistingPrivateSubnet2
+
+  # EKS Cluster Access Entry
+  EKSClusterAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref EKSCluster
+      PrincipalArn: !Ref EKSClusterAccessARN
+      AccessPolicies: 
+        - PolicyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy'
+          AccessScope:
+            Type: 'cluster'
+
+  EKSNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      ClusterName: !Ref EKSCluster
+      NodeRole: !Ref ExistingNodeRoleArn
+      Subnets:
+        - !Ref ExistingPrivateSubnet1
+        - !Ref ExistingPrivateSubnet2
+      ScalingConfig:
+        DesiredSize: 0
+        MinSize: 0
+        MaxSize: 1
+      InstanceTypes:
+        - t3.medium
+      AmiType: AL2_x86_64
+      DiskSize: 20
+      Labels:
+        environment: dev
+      NodegroupName: CrowdStrikeTestEKSNodeGroup
+      CapacityType: ON_DEMAND
+
+Outputs:
+  EKSClusterName:
+    Value: !Ref EKSCluster
+    Description: Name of the EKS Cluster
+
+  EKSNodeGroupName:
+    Value: !Ref EKSNodeGroup
+    Description: Name of the EKS Node Group
